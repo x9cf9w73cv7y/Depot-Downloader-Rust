@@ -1,0 +1,78 @@
+[package]
+name = "depot_downloader"
+version = "0.1.0"
+edition = "2021"
+authors = ["DepotDownloaderGUI Rust Port"]
+description = "Steam depot downloader GUI in Rust"
+
+[dependencies]
+# GUI Framework
+egui = "0.28"
+eframe = { version = "0.28", features = ["default"] }
+
+# Async Runtime
+tokio = { version = "1.41", features = ["full"] }
+
+# HTTP Client
+reqwest = { version = "0.12", features = ["json", "stream"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Protobuf
+prost = "0.13"
+
+# Crypto (for manifest decryption)
+aes = "0.8"
+ctr = "0.9"
+
+# Error Handling
+anyhow = "1.0"
+thiserror = "2.0"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Image handling for game icons
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+
+# HTTP server for Steam callback (if needed)
+tiny_http = "0.12"
+
+# VDF parsing (for depot keys)
+keyvalues-parser = "0.2"
+
+# File operations
+tempfile = "3.14"
+
+# Cross-platform paths
+path-slash = "0.2"
+
+# For download progress
+indicatif = { version = "0.17", optional = true }
+
+# Directory paths
+dirs = "5.0"
+
+# URL opening
+open = "5.3"
+
+# Random number generation for CDN selection
+rand = "0.8"
+
+# Futures
+futures = "0.3"
+futures-util = "0.3"
+
+# Date/Time
+chrono = { version = "0.4", features = ["serde"] }
+
+[build-dependencies]
+prost-build = "0.13"
+
+[features]
+default = ["gui"]
+gui = []
+cli = ["indicatif"]
