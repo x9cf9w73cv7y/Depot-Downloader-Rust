@@ -4,7 +4,7 @@ use tokio::sync::mpsc::{self, UnboundedSender, UnboundedReceiver};
 
 use crate::steam::web_api::{SteamWebApi, GameInfo};
 use crate::gui::components::LogBox;
-use crate::gui::dialogs::{DownloadDialog, SettingsDialog};
+use crate::gui::dialogs::{DownloadDialog, SettingsDialog, DownloadConfig};
 
 #[derive(Debug, Clone)]
 pub enum AppMessage {
@@ -237,6 +237,28 @@ impl DepotDownloaderApp {
             self.download_dialog = Some(DownloadDialog::new(game.app_id));
         }
     }
+
+    fn start_download(&mut self, config: DownloadConfig) {
+        self.state = AppState::Downloading;
+        self.progress = 0.0;
+        self.log_box.info(format!(
+            "Starting download for App ID: {}, Depot ID: {}",
+            config.app_id, config.depot_id
+        ));
+        self.log_box.info(format!("Install directory: {}", config.install_dir));
+        
+        // TODO: Implement actual download logic
+        // For now, simulate download progress
+        let tx = self.message_tx.clone();
+        tokio::spawn(async move {
+            // Simulate download progress
+            for i in 1..=10 {
+                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                tracing::info!("Download progress: {}%", i * 10);
+            }
+            tracing::info!("Download completed!");
+        });
+    }
 }
 
 impl eframe::App for DepotDownloaderApp {
@@ -254,22 +276,29 @@ impl eframe::App for DepotDownloaderApp {
         });
 
         // Render modal dialogs
+        let mut download_config: Option<DownloadConfig> = None;
+        
         if let Some(dialog) = &mut self.download_dialog {
             let mut open = true;
+            
             egui::Window::new("Download")
                 .open(&mut open)
                 .resizable(false)
                 .collapsible(false)
                 .show(ctx, |ui| {
                     if let Some(config) = dialog.ui(ui) {
-                        // Handle download config
-                        tracing::info!("Download config: {:?}", config);
+                        download_config = Some(config);
                     }
                 });
             
-            if !open {
+            if download_config.is_some() || !open {
                 self.download_dialog = None;
             }
+        }
+        
+        // Start download outside of the closure to avoid borrow issues
+        if let Some(config) = download_config {
+            self.start_download(config);
         }
 
         if let Some(dialog) = &mut self.settings_dialog {
