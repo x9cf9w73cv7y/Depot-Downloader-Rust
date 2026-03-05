@@ -1,10 +1,17 @@
 use eframe::{egui, CreationContext};
-use std::sync::{Arc, Mutex};
-use tokio::sync::mpsc;
+use std::sync::Arc;
+use tokio::sync::mpsc::{self, UnboundedSender, UnboundedReceiver};
 
 use crate::steam::web_api::{SteamWebApi, GameInfo};
 use crate::gui::components::LogBox;
 use crate::gui::dialogs::{DownloadDialog, SettingsDialog};
+
+#[derive(Debug, Clone)]
+pub enum AppMessage {
+    GameFound(GameInfo),
+    GameNotFound,
+    SearchError(String),
+}
 
 #[derive(Debug, Clone)]
 enum AppState {
@@ -24,6 +31,8 @@ pub struct DepotDownloaderApp {
     steam_api: Arc<SteamWebApi>,
     progress: f32,
     settings: AppSettings,
+    message_tx: UnboundedSender<AppMessage>,
+    message_rx: UnboundedReceiver<AppMessage>,
 }
 
 #[derive(Debug, Clone)]
@@ -58,6 +67,7 @@ impl DepotDownloaderApp {
         cc.egui_ctx.set_style(style);
 
         let steam_api = Arc::new(SteamWebApi::new().expect("Failed to create Steam API client"));
+        let (message_tx, message_rx) = mpsc::unbounded_channel();
 
         Self {
             state: AppState::Idle,
@@ -69,6 +79,8 @@ impl DepotDownloaderApp {
             steam_api,
             progress: 0.0,
             settings: AppSettings::default(),
+            message_tx,
+            message_rx,
         }
     }
 
@@ -172,26 +184,44 @@ impl DepotDownloaderApp {
             self.log_box.info(format!("Searching for App ID: {}", app_id));
 
             let api = self.steam_api.clone();
-            let ctx = egui::Context::clone(&egui::Context::default());
-            
+            let tx = self.message_tx.clone();
+
             tokio::spawn(async move {
                 match api.get_game_info(app_id).await {
                     Ok(Some(game)) => {
-                        tracing::info!("Found game: {}", game.name);
-                        // We need to communicate back to the UI
-                        // For now, just log success
+                        let _ = tx.send(AppMessage::GameFound(game));
                     }
                     Ok(None) => {
-                        tracing::warn!("Game not found for App ID: {}", app_id);
+                        let _ = tx.send(AppMessage::GameNotFound);
                     }
                     Err(e) => {
-                        tracing::error!("Error searching for game: {}", e);
+                        let _ = tx.send(AppMessage::SearchError(e.to_string()));
                     }
                 }
             });
         } else {
             self.state = AppState::Error("Invalid App ID".to_string());
             self.log_box.error("Please enter a valid numeric App ID");
+        }
+    }
+
+    fn handle_messages(&mut self) {
+        while let Ok(message) = self.message_rx.try_recv() {
+            match message {
+                AppMessage::GameFound(game) => {
+                    self.current_game = Some(game.clone());
+                    self.state = AppState::Idle;
+                    self.log_box.success(format!("Found game: {}", game.name));
+                }
+                AppMessage::GameNotFound => {
+                    self.state = AppState::Error("Game not found".to_string());
+                    self.log_box.error("Game not found for the provided App ID");
+                }
+                AppMessage::SearchError(error) => {
+                    self.state = AppState::Error(error.clone());
+                    self.log_box.error(format!("Search error: {}", error));
+                }
+            }
         }
     }
 
@@ -211,6 +241,9 @@ impl DepotDownloaderApp {
 
 impl eframe::App for DepotDownloaderApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Process any async messages
+        self.handle_messages();
+
         egui::CentralPanel::default().show(ctx, |ui| {
             self.render_header(ui);
             self.render_search_section(ui);
