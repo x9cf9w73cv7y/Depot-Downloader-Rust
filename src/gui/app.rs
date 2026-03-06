@@ -265,7 +265,7 @@ impl DepotDownloaderApp {
             let app_id = game.app_id;
             
             tokio::spawn(async move {
-                let fetcher = ManifestHubFetcher::default();
+                let mut fetcher = ManifestHubFetcher::default();
                 match fetcher.fetch_depot_keys(app_id).await {
                     Ok(keys) => {
                         tracing::info!("Fetched {} depot keys", keys.len());
