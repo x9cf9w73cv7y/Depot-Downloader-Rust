@@ -5,6 +5,7 @@ mod steam;
 mod cdn;
 mod manifest;
 mod config;
+mod downloader;
 
 use gui::DepotDownloaderApp;
 

@@ -1,16 +1,19 @@
 use eframe::{egui, CreationContext};
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::mpsc::{self, UnboundedSender, UnboundedReceiver};
 
 use crate::steam::web_api::{SteamWebApi, GameInfo};
 use crate::gui::components::LogBox;
 use crate::gui::dialogs::{DownloadDialog, SettingsDialog, DownloadConfig};
+use crate::downloader::{DownloadManager, DownloadProgress};
 
 #[derive(Debug, Clone)]
 pub enum AppMessage {
     GameFound(GameInfo),
     GameNotFound,
     SearchError(String),
+    DownloadProgress(DownloadProgress),
 }
 
 #[derive(Debug, Clone)]
@@ -221,6 +224,16 @@ impl DepotDownloaderApp {
                     self.state = AppState::Error(error.clone());
                     self.log_box.error(format!("Search error: {}", error));
                 }
+                AppMessage::DownloadProgress(progress) => {
+                    if progress.complete {
+                        self.state = AppState::Idle;
+                        self.progress = 1.0;
+                        self.log_box.success("Download completed!");
+                    } else {
+                        self.progress = progress.progress_percent();
+                        self.log_box.info(progress.message.clone());
+                    }
+                }
             }
         }
     }
@@ -246,17 +259,44 @@ impl DepotDownloaderApp {
             config.app_id, config.depot_id
         ));
         self.log_box.info(format!("Install directory: {}", config.install_dir));
-        
-        // TODO: Implement actual download logic
-        // For now, simulate download progress
-        let tx = self.message_tx.clone();
+
+        // Create download manager
+        let (progress_tx, mut progress_rx) = mpsc::channel::<DownloadProgress>(100);
+        let message_tx = self.message_tx.clone();
+        let message_tx2 = message_tx.clone();
+
+        // Spawn a task to forward progress messages
         tokio::spawn(async move {
-            // Simulate download progress
-            for i in 1..=10 {
-                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-                tracing::info!("Download progress: {}%", i * 10);
+            while let Some(progress) = progress_rx.recv().await {
+                let _ = message_tx.send(AppMessage::DownloadProgress(progress));
             }
-            tracing::info!("Download completed!");
+        });
+
+        // Start the actual download
+        tokio::spawn(async move {
+            match DownloadManager::new(progress_tx) {
+                Ok(mut manager) => {
+                    let install_dir = PathBuf::from(config.install_dir);
+                    match manager.download_depot(
+                        config.app_id,
+                        config.depot_id,
+                        config.manifest_id,
+                        &install_dir,
+                    ).await {
+                        Ok(_) => {
+                            tracing::info!("Download completed successfully");
+                        }
+                        Err(e) => {
+                            tracing::error!("Download failed: {}", e);
+                            let _ = message_tx2.send(AppMessage::SearchError(format!("Download failed: {}", e)));
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Failed to create download manager: {}", e);
+                    let _ = message_tx2.send(AppMessage::SearchError(format!("Failed to create download manager: {}", e)));
+                }
+            }
         });
     }
 }

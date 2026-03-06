@@ -149,6 +149,10 @@ impl CdnClient {
         Ok(())
     }
 
+    pub fn get_server(&mut self) -> Option<&CdnServer> {
+        self.server_pool.get_server()
+    }
+
     pub fn get_server_count(&self) -> usize {
         self.server_pool.server_count()
     }

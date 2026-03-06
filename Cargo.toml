@@ -69,6 +69,12 @@ futures-util = "0.3"
 # Date/Time
 chrono = { version = "0.4", features = ["serde"] }
 
+# Regex for parsing
+regex = "1.11"
+
+# Hex encoding/decoding
+hex = "0.4"
+
 [build-dependencies]
 prost-build = "0.13"
 
