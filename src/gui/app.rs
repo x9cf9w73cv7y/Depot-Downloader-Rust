@@ -335,6 +335,7 @@ impl DepotDownloaderApp {
         // Start the actual download
         let depot_id = config.depot_id;
         let app_id = config.app_id;
+        let manifest_id = config.manifest_id;
         
         tokio::spawn(async move {
             match DownloadManager::new(progress_tx) {
@@ -343,11 +344,11 @@ impl DepotDownloaderApp {
                     manager.set_depot_keys(depot_keys);
                     
                     let install_dir = PathBuf::from(config.install_dir);
-                    // Pass None for manifest_id - it will be fetched from Steam
+                    // Use manifest_id from dialog (None if auto-detect)
                     match manager.download_depot(
                         app_id,
                         depot_id,
-                        None, // Manifest ID will be fetched from Steam
+                        manifest_id, // Use user-provided ID or None for auto-detect
                         &install_dir,
                     ).await {
                         Ok(_) => {

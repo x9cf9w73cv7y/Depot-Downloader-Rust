@@ -4,6 +4,7 @@ use crate::gui::app::AppSettings;
 pub struct DownloadDialog {
     app_id: u32,
     depot_id: String,
+    manifest_id: String,
     install_dir: String,
     verify_download: bool,
 }
@@ -14,6 +15,7 @@ impl DownloadDialog {
         Self {
             app_id,
             depot_id: (app_id + 1).to_string(),
+            manifest_id: String::new(),
             install_dir: format!("./downloads/{}", app_id),
             verify_download: true,
         }
@@ -24,7 +26,6 @@ impl DownloadDialog {
         let mut cancelled = false;
 
         ui.label(format!("Download configuration for App ID: {}", self.app_id));
-        ui.label("The manifest will be automatically determined from Steam servers.");
         ui.separator();
 
         // Depot ID input (REQUIRED - user must specify which depot to download)
@@ -36,7 +37,16 @@ impl DownloadDialog {
         ui.label("Tip: Common depot IDs:");
         ui.label(format!("  - {} (Linux/SteamOS)", self.app_id));
         ui.label(format!("  - {} (Windows)", self.app_id + 1));
-        ui.label(format!("  - {} (macOS)", self.app_id + 2));
+        ui.label(format!("  - {} (MacOS)", self.app_id + 2));
+
+        // Manifest ID input (OPTIONAL - will be auto-detected if not provided)
+        ui.horizontal(|ui| {
+            ui.label("Manifest ID:");
+            ui.text_edit_singleline(&mut self.manifest_id)
+                .on_hover_text("Specific manifest version (optional - leave empty to auto-detect)");
+        });
+        ui.label("Tip: You can find Manifest IDs on SteamDB.gg or similar sites");
+        ui.label("      Leave empty to try auto-detection (may not work for all games)");
 
         // Install directory
         ui.horizontal(|ui| {
@@ -74,10 +84,16 @@ impl DownloadDialog {
 
         if confirmed {
             let depot_id = self.depot_id.parse::<u32>().ok()?;
+            let manifest_id = if self.manifest_id.is_empty() {
+                None
+            } else {
+                self.manifest_id.parse::<u64>().ok()
+            };
 
             return Some(DownloadConfig {
                 app_id: self.app_id,
                 depot_id,
+                manifest_id,
                 install_dir: self.install_dir.clone(),
                 verify: self.verify_download,
             });
@@ -91,6 +107,7 @@ impl DownloadDialog {
 pub struct DownloadConfig {
     pub app_id: u32,
     pub depot_id: u32,
+    pub manifest_id: Option<u64>,
     pub install_dir: String,
     pub verify: bool,
 }

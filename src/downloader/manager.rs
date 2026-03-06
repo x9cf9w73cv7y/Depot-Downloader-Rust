@@ -65,12 +65,25 @@ impl DownloadManager {
         }
 
         // Step 2: Fetch or load manifest
-        let manifest = if let Some(manifest_id) = manifest_id {
-            self.fetch_manifest(depot_id, manifest_id).await?
+        // If no manifest_id provided, try to fetch the latest one
+        let manifest_id = if let Some(id) = manifest_id {
+            id
         } else {
-            // Try to get latest manifest
-            return Err(anyhow::anyhow!("Manifest ID required"));
+            self.send_progress(DownloadProgress::message("Fetching latest manifest ID from Steam...")).await;
+            match self.fetch_latest_manifest_id(depot_id).await {
+                Ok(id) => {
+                    tracing::info!("Found latest manifest ID: {}", id);
+                    self.send_progress(DownloadProgress::message(format!("Using manifest ID: {}", id))).await;
+                    id
+                }
+                Err(e) => {
+                    tracing::error!("Failed to fetch latest manifest ID: {}", e);
+                    return Err(anyhow::anyhow!("Failed to fetch latest manifest ID. Please specify a manifest ID manually. Error: {}", e));
+                }
+            }
         };
+        
+        let manifest = self.fetch_manifest(depot_id, manifest_id).await?;
 
         tracing::info!("Manifest contains {} files", manifest.files.len());
 
@@ -141,6 +154,18 @@ impl DownloadManager {
         self.manifest_store.save_manifest(depot_id, manifest_id, &encrypted_data).await?;
 
         Ok(manifest)
+    }
+
+    async fn fetch_latest_manifest_id(&self, depot_id: u32) -> Result<u64> {
+        // For now, we cannot automatically detect the latest manifest ID without SteamKit2
+        // Return an error with instructions on how to get the manifest ID manually
+        Err(anyhow::anyhow!(
+            "Cannot automatically detect manifest ID for depot {}. \
+             Please specify a manifest ID manually in the download dialog. \
+             You can find manifest IDs on SteamDB.gg or similar sites. \
+             Look for the depot ID {} and copy the latest manifest ID.",
+            depot_id, depot_id
+        ))
     }
 
     async fn download_file(
