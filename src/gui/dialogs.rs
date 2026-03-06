@@ -28,6 +28,16 @@ impl DownloadDialog {
         ui.label(format!("Download configuration for App ID: {}", self.app_id));
         ui.separator();
 
+        // Important warning about ManifestHub
+        ui.colored_label(
+            egui::Color32::YELLOW,
+            "⚠️ IMPORTANT: This tool uses ManifestHub which only has cached manifests.\\n\
+            Not all games/manifests are available! If download fails with 404,\\n\
+            the manifest is not cached."
+        );
+        
+        ui.separator();
+
         // Depot ID input (REQUIRED - user must specify which depot to download)
         ui.horizontal(|ui| {
             ui.label("Depot ID:");
@@ -39,14 +49,21 @@ impl DownloadDialog {
         ui.label(format!("  - {} (Windows)", self.app_id + 1));
         ui.label(format!("  - {} (MacOS)", self.app_id + 2));
 
-        // Manifest ID input (OPTIONAL - will be auto-detected if not provided)
+        ui.separator();
+
+        // Manifest ID input (REQUIRED - must be provided by user)
         ui.horizontal(|ui| {
             ui.label("Manifest ID:");
             ui.text_edit_singleline(&mut self.manifest_id)
-                .on_hover_text("Specific manifest version (optional - leave empty to auto-detect)");
+                .on_hover_text("Required! Get from SteamDB.gg -> Depots -> manifest column");
         });
-        ui.label("Tip: You can find Manifest IDs on SteamDB.gg or similar sites");
-        ui.label("      Leave empty to try auto-detection (may not work for all games)");
+        ui.label("How to find Manifest ID:");
+        ui.label(format!("1. Go to https://steamdb.info/app/{}/depots/", self.app_id));
+        ui.label(format!("2. Find your depot ID (e.g., {})", self.app_id + 1));
+        ui.label("3. Click on the depot to see manifests");
+        ui.label("4. Copy the latest manifest ID (long number)");
+        
+        ui.separator();
 
         // Install directory
         ui.horizontal(|ui| {
@@ -65,11 +82,18 @@ impl DownloadDialog {
         // Buttons
         ui.horizontal(|ui| {
             if ui.button("✓ Download").clicked() {
-                if self.depot_id.parse::<u32>().is_ok() {
+                let depot_valid = self.depot_id.parse::<u32>().is_ok();
+                let manifest_valid = !self.manifest_id.is_empty() && self.manifest_id.parse::<u64>().is_ok();
+                
+                if depot_valid && manifest_valid {
                     confirmed = true;
                 } else {
-                    // Show error if depot ID is invalid
-                    ui.label("Invalid Depot ID");
+                    if !depot_valid {
+                        ui.colored_label(egui::Color32::RED, "Invalid Depot ID");
+                    }
+                    if !manifest_valid {
+                        ui.colored_label(egui::Color32::RED, "Manifest ID required (see instructions above)");
+                    }
                 }
             }
 
@@ -84,11 +108,7 @@ impl DownloadDialog {
 
         if confirmed {
             let depot_id = self.depot_id.parse::<u32>().ok()?;
-            let manifest_id = if self.manifest_id.is_empty() {
-                None
-            } else {
-                self.manifest_id.parse::<u64>().ok()
-            };
+            let manifest_id = self.manifest_id.parse::<u64>().ok();
 
             return Some(DownloadConfig {
                 app_id: self.app_id,

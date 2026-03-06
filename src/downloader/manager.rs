@@ -141,8 +141,24 @@ impl DownloadManager {
         }
 
         // Fetch from ManifestHub
-        self.send_progress(DownloadProgress::message("Fetching manifest...")).await;
-        let encrypted_data = self.manifest_fetcher.fetch_manifest(depot_id, manifest_id).await?;
+        self.send_progress(DownloadProgress::message(format!("Fetching manifest {} for depot {}...", manifest_id, depot_id))).await;
+        
+        let encrypted_data = match self.manifest_fetcher.fetch_manifest(depot_id, manifest_id).await {
+            Ok(data) => data,
+            Err(e) => {
+                return Err(anyhow::anyhow!(
+                    "Manifest {} for depot {} not found on ManifestHub. \\n\
+                    This manifest may not be cached yet. \\\n\
+                    Solutions:\\\n\
+                    1. Use the original DepotDownloader (C#) which can download manifests directly from Steam\\n\
+                    2. Wait for the manifest to be added to ManifestHub\\n\
+                    3. Check if the depot ID is correct\\n\
+                    \\\n\
+                    Technical error: {}",
+                    manifest_id, depot_id, e
+                ));
+            }
+        };
 
         // Decrypt manifest
         let decrypted_data = self.decryptor.decrypt_manifest(depot_id, &encrypted_data)?;
