@@ -1,4 +1,5 @@
 use eframe::{egui, CreationContext};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::mpsc::{self, UnboundedSender, UnboundedReceiver};
@@ -7,6 +8,7 @@ use crate::steam::web_api::{SteamWebApi, GameInfo};
 use crate::gui::components::LogBox;
 use crate::gui::dialogs::{DownloadDialog, SettingsDialog, DownloadConfig};
 use crate::downloader::{DownloadManager, DownloadProgress};
+use crate::manifest::ManifestHubFetcher;
 
 #[derive(Debug, Clone)]
 pub enum AppMessage {
@@ -14,6 +16,8 @@ pub enum AppMessage {
     GameNotFound,
     SearchError(String),
     DownloadProgress(DownloadProgress),
+    DepotKeysFetched(HashMap<u32, String>),
+    DepotKeysError(String),
 }
 
 #[derive(Debug, Clone)]
@@ -36,6 +40,7 @@ pub struct DepotDownloaderApp {
     settings: AppSettings,
     message_tx: UnboundedSender<AppMessage>,
     message_rx: UnboundedReceiver<AppMessage>,
+    depot_keys: std::collections::HashMap<u32, String>, // depot_id -> key
 }
 
 #[derive(Debug, Clone)]
@@ -84,6 +89,7 @@ impl DepotDownloaderApp {
             settings: AppSettings::default(),
             message_tx,
             message_rx,
+            depot_keys: HashMap::new(),
         }
     }
 
@@ -234,6 +240,18 @@ impl DepotDownloaderApp {
                         self.log_box.info(progress.message.clone());
                     }
                 }
+                AppMessage::DepotKeysFetched(keys) => {
+                    self.state = AppState::Idle;
+                    self.depot_keys = keys.clone();
+                    self.log_box.success(format!("Fetched {} depot keys", keys.len()));
+                    for (depot_id, key) in &keys {
+                        tracing::info!("Depot {}: {}...", depot_id, &key[..20.min(key.len())]);
+                    }
+                }
+                AppMessage::DepotKeysError(error) => {
+                    self.state = AppState::Error(error.clone());
+                    self.log_box.error(format!("Failed to fetch depot keys: {}", error));
+                }
             }
         }
     }
@@ -241,7 +259,24 @@ impl DepotDownloaderApp {
     fn handle_get_depot_keys(&mut self) {
         if let Some(game) = &self.current_game {
             self.log_box.info(format!("Fetching depot keys for App ID: {}", game.app_id));
-            // TODO: Implement depot key fetching from ManifestHub
+            self.state = AppState::Searching;
+            
+            let tx = self.message_tx.clone();
+            let app_id = game.app_id;
+            
+            tokio::spawn(async move {
+                let fetcher = ManifestHubFetcher::default();
+                match fetcher.fetch_depot_keys(app_id).await {
+                    Ok(keys) => {
+                        tracing::info!("Fetched {} depot keys", keys.len());
+                        let _ = tx.send(AppMessage::DepotKeysFetched(keys));
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to fetch depot keys: {}", e);
+                        let _ = tx.send(AppMessage::DepotKeysError(e.to_string()));
+                    }
+                }
+            });
         }
     }
 
@@ -252,6 +287,13 @@ impl DepotDownloaderApp {
     }
 
     fn start_download(&mut self, config: DownloadConfig) {
+        // Check if we have depot keys
+        if self.depot_keys.is_empty() {
+            self.state = AppState::Error("No depot keys found. Please click 'Get Depot Keys' first.".to_string());
+            self.log_box.error("No depot keys found. Please click 'Get Depot Keys' first.");
+            return;
+        }
+
         self.state = AppState::Downloading;
         self.progress = 0.0;
         self.log_box.info(format!(
@@ -259,6 +301,10 @@ impl DepotDownloaderApp {
             config.app_id, config.depot_id
         ));
         self.log_box.info(format!("Install directory: {}", config.install_dir));
+        self.log_box.info(format!("Using {} depot keys", self.depot_keys.len()));
+
+        // Clone depot keys for the async task
+        let depot_keys = self.depot_keys.clone();
 
         // Create download manager
         let (progress_tx, mut progress_rx) = mpsc::channel::<DownloadProgress>(100);
@@ -276,6 +322,9 @@ impl DepotDownloaderApp {
         tokio::spawn(async move {
             match DownloadManager::new(progress_tx) {
                 Ok(mut manager) => {
+                    // Add depot keys to the manager
+                    manager.set_depot_keys(depot_keys);
+                    
                     let install_dir = PathBuf::from(config.install_dir);
                     match manager.download_depot(
                         config.app_id,

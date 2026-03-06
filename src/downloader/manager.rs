@@ -14,6 +14,8 @@ use crate::downloader::progress::{DownloadProgress, ProgressCallback};
 const MAX_CONCURRENT_DOWNLOADS: usize = 8;
 const MAX_RETRIES: u32 = 3;
 
+use std::collections::HashMap;
+
 pub struct DownloadManager {
     manifest_fetcher: ManifestHubFetcher,
     cdn_client: CdnClient,
@@ -21,6 +23,7 @@ pub struct DownloadManager {
     manifest_store: ManifestStore,
     progress_tx: mpsc::Sender<DownloadProgress>,
     semaphore: Arc<Semaphore>,
+    depot_keys: HashMap<u32, String>,
 }
 
 impl DownloadManager {
@@ -32,7 +35,19 @@ impl DownloadManager {
             manifest_store: ManifestStore::default(),
             progress_tx,
             semaphore: Arc::new(Semaphore::new(MAX_CONCURRENT_DOWNLOADS)),
+            depot_keys: HashMap::new(),
         })
+    }
+
+    pub fn set_depot_keys(&mut self, keys: HashMap<u32, String>) {
+        self.depot_keys = keys;
+        
+        // Add keys to decryptor
+        for (id, key_hex) in &self.depot_keys {
+            if let Ok(key) = hex::decode(key_hex) {
+                self.decryptor.add_depot_key(*id, key);
+            }
+        }
     }
 
     pub async fn download_depot(
@@ -44,19 +59,9 @@ impl DownloadManager {
     ) -> Result<()> {
         tracing::info!("Starting download for depot {} of app {}", depot_id, app_id);
 
-        // Step 1: Fetch depot keys
-        self.send_progress(DownloadProgress::message("Fetching depot keys...")).await;
-        let depot_keys = self.manifest_fetcher.fetch_depot_keys(app_id).await?;
-        
-        if depot_keys.is_empty() {
-            return Err(anyhow::anyhow!("No depot keys found for app {}", app_id));
-        }
-
-        // Add keys to decryptor
-        for (id, key_hex) in &depot_keys {
-            if let Ok(key) = hex::decode(key_hex) {
-                self.decryptor.add_depot_key(*id, key);
-            }
+        // Check if we have depot keys
+        if self.depot_keys.is_empty() {
+            return Err(anyhow::anyhow!("No depot keys available. Please fetch depot keys first."));
         }
 
         // Step 2: Fetch or load manifest
