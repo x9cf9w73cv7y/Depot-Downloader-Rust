@@ -4,21 +4,18 @@ use crate::gui::app::AppSettings;
 pub struct DownloadDialog {
     app_id: u32,
     depot_id: String,
-    manifest_id: String,
     install_dir: String,
     verify_download: bool,
-    selected_depots: Vec<u32>,
 }
 
 impl DownloadDialog {
     pub fn new(app_id: u32) -> Self {
+        // Default depot ID is app_id + 1 (for Windows games)
         Self {
             app_id,
-            depot_id: app_id.to_string(),
-            manifest_id: String::new(),
+            depot_id: (app_id + 1).to_string(),
             install_dir: format!("./downloads/{}", app_id),
             verify_download: true,
-            selected_depots: Vec::new(),
         }
     }
 
@@ -27,21 +24,19 @@ impl DownloadDialog {
         let mut cancelled = false;
 
         ui.label(format!("Download configuration for App ID: {}", self.app_id));
+        ui.label("The manifest will be automatically determined from Steam servers.");
         ui.separator();
 
-        // Depot ID input
+        // Depot ID input (REQUIRED - user must specify which depot to download)
         ui.horizontal(|ui| {
             ui.label("Depot ID:");
             ui.text_edit_singleline(&mut self.depot_id)
-                .on_hover_text("The depot to download (usually same as App ID)");
+                .on_hover_text("The depot ID to download (check your depot keys to see available depots)");
         });
-
-        // Manifest ID input
-        ui.horizontal(|ui| {
-            ui.label("Manifest ID:");
-            ui.text_edit_singleline(&mut self.manifest_id)
-                .on_hover_text("Specific manifest version (optional)");
-        });
+        ui.label("Tip: Common depot IDs:");
+        ui.label(format!("  - {} (Linux/SteamOS)", self.app_id));
+        ui.label(format!("  - {} (Windows)", self.app_id + 1));
+        ui.label(format!("  - {} (macOS)", self.app_id + 2));
 
         // Install directory
         ui.horizontal(|ui| {
@@ -62,6 +57,9 @@ impl DownloadDialog {
             if ui.button("✓ Download").clicked() {
                 if self.depot_id.parse::<u32>().is_ok() {
                     confirmed = true;
+                } else {
+                    // Show error if depot ID is invalid
+                    ui.label("Invalid Depot ID");
                 }
             }
 
@@ -76,16 +74,10 @@ impl DownloadDialog {
 
         if confirmed {
             let depot_id = self.depot_id.parse::<u32>().ok()?;
-            let manifest_id = if self.manifest_id.is_empty() {
-                None
-            } else {
-                self.manifest_id.parse::<u64>().ok()
-            };
 
             return Some(DownloadConfig {
                 app_id: self.app_id,
                 depot_id,
-                manifest_id,
                 install_dir: self.install_dir.clone(),
                 verify: self.verify_download,
             });
@@ -99,7 +91,6 @@ impl DownloadDialog {
 pub struct DownloadConfig {
     pub app_id: u32,
     pub depot_id: u32,
-    pub manifest_id: Option<u64>,
     pub install_dir: String,
     pub verify: bool,
 }

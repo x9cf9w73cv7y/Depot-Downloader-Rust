@@ -150,20 +150,34 @@ impl DepotDownloaderApp {
                 });
 
                 ui.separator();
-                
+
                 egui::ScrollArea::vertical()
                     .max_height(100.0)
                     .show(ui, |ui| {
                         ui.label(&game.description);
                     });
 
+                ui.separator();
+
+                // Show available depot keys
+                if !self.depot_keys.is_empty() {
+                    ui.label("Available Depot Keys:");
+                    for (depot_id, key) in &self.depot_keys {
+                        ui.label(format!("  Depot {}: {}...", depot_id, &key[..20.min(key.len())]));
+                    }
+                } else {
+                    ui.label("No depot keys loaded. Click 'Get Depot Keys' first.");
+                }
+
+                ui.separator();
+
                 // Action buttons
                 ui.horizontal(|ui| {
                     if ui.button("📥 Get Depot Keys").clicked() {
                         self.handle_get_depot_keys();
                     }
-                    
-                    if ui.button("⬇️ Download").clicked() {
+
+                    if ui.button("⬇️ Download").clicked() && !self.depot_keys.is_empty() {
                         self.show_download_dialog();
                     }
                 });
@@ -319,6 +333,9 @@ impl DepotDownloaderApp {
         });
 
         // Start the actual download
+        let depot_id = config.depot_id;
+        let app_id = config.app_id;
+        
         tokio::spawn(async move {
             match DownloadManager::new(progress_tx) {
                 Ok(mut manager) => {
@@ -326,10 +343,11 @@ impl DepotDownloaderApp {
                     manager.set_depot_keys(depot_keys);
                     
                     let install_dir = PathBuf::from(config.install_dir);
+                    // Pass None for manifest_id - it will be fetched from Steam
                     match manager.download_depot(
-                        config.app_id,
-                        config.depot_id,
-                        config.manifest_id,
+                        app_id,
+                        depot_id,
+                        None, // Manifest ID will be fetched from Steam
                         &install_dir,
                     ).await {
                         Ok(_) => {
